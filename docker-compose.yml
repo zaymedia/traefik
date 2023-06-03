@@ -1,0 +1,158 @@
+version: "3.9"
+
+services:
+
+    traefik:
+        image: traefik:v2.9
+        container_name: traefik
+        restart: always
+        command:
+            - --providers.docker=true
+            - --providers.docker.exposedByDefault=false
+            - --entryPoints.http.address=:80
+            - --entryPoints.https.address=:443
+            - --certificatesResolvers.letsEncrypt.acme.httpChallenge=true
+            - --certificatesResolvers.letsEncrypt.acme.httpChallenge.entryPoint=http
+            - --certificatesResolvers.letsEncrypt.acme.email=mail@zay.media
+            - --certificatesResolvers.letsEncrypt.acme.storage=/certs/acme.json
+        ports:
+            - target: 80
+              published: 80
+              protocol: tcp
+              mode: host
+            - target: 443
+              published: 443
+              protocol: tcp
+              mode: host
+        networks:
+            - traefik-public
+            - default
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - traefik-public-certs:/certs
+        labels:
+            - traefik.enable=true
+            - traefik.docker.network=traefik-public
+
+            - traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)
+            - traefik.http.routers.http-catchall.entryPoints=http
+            - traefik.http.routers.http-catchall.middlewares=redirect-to-https
+            - traefik.http.services.http-catchall.loadBalancer.server.port=80
+
+            - traefik.http.middlewares.redirect-to-https.redirectScheme.scheme=https
+            - traefik.http.middlewares.redirect-to-https.redirectScheme.permanent=true
+
+            - traefik.http.middlewares.secure-headers.headers.sslRedirect=true
+            - traefik.http.middlewares.secure-headers.headers.stsSeconds=31536000
+            - traefik.http.middlewares.secure-headers.headers.contentSecurityPolicy=block-all-mixed-content
+
+    centrifugo:
+        container_name: centrifugo
+        image: centrifugo/centrifugo:latest
+        restart: always
+        networks:
+            - traefik-public
+        volumes:
+            - ./docker/centrifugo/config.json:/centrifugo/config.json
+        command: centrifugo -c config.json
+        ulimits:
+            nofile:
+                soft: 65535
+                hard: 65535
+        labels:
+            - traefik.enable=true
+            - traefik.docker.network=traefik-public
+            - traefik.http.routers.centrifugo.rule=Host(`realtime.zay.media`)
+            - traefik.http.routers.centrifugo.entryPoints=https
+            - traefik.http.routers.centrifugo.middlewares=secure-headers
+            - traefik.http.routers.centrifugo.tls=true
+            - traefik.http.routers.centrifugo.tls.certResolver=letsEncrypt
+            - traefik.http.services.centrifugo.loadBalancer.server.port=8000
+
+    jenkins:
+        container_name: jenkins
+        build:
+            context: ./docker/jenkins
+        restart: always
+        networks:
+            - traefik-public
+            - default
+        environment:
+            DOCKER_HOST: tcp://docker:2376
+            DOCKER_CERT_PATH: /certs/client
+            DOCKER_TLS_VERIFY: 1
+        volumes:
+            - jenkins-data:/var/jenkins_home
+            - docker-certs:/certs/client:ro
+        depends_on:
+            - docker
+        labels:
+            - traefik.enable=true
+            - traefik.docker.network=traefik-public
+            - traefik.http.routers.jenkins.rule=Host(`jenkins.zay.media`)
+            - traefik.http.routers.jenkins.entryPoints=https
+            - traefik.http.routers.jenkins.middlewares=secure-headers
+            - traefik.http.routers.jenkins.tls=true
+            - traefik.http.routers.jenkins.tls.certResolver=letsEncrypt
+
+    docker:
+        container_name: docker
+        image: docker:dind
+        restart: always
+        privileged: true
+        environment:
+            DOCKER_TLS_CERTDIR: /certs
+        volumes:
+            - jenkins-data:/var/jenkins_home
+            - docker-certs:/certs/client
+            - docker-data:/var/lib/docker
+
+    dockerhub:
+        container_name: dockerhub
+        image: registry:2
+        restart: always
+        environment:
+            REGISTRY_AUTH: htpasswd
+            REGISTRY_AUTH_HTPASSWD_REALM: Realm
+            REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
+            REGISTRY_STORAGE_DELETE_ENABLED: true
+        networks:
+            - traefik-public
+        volumes:
+            - ./htpasswd:/auth/htpasswd
+            - dockerhub:/var/lib/registry
+            - ./docker/dockerhub/garbage.yml:/dockerhub/garbage.yml
+        labels:
+            - traefik.enable=true
+            - traefik.docker.network=traefik-public
+            - traefik.http.routers.dockerhub.rule=Host(`dockerhub.zay.media`)
+            - traefik.http.routers.dockerhub.entryPoints=https
+            - traefik.http.routers.dockerhub.middlewares=secure-headers
+            - traefik.http.routers.dockerhub.tls=true
+            - traefik.http.routers.dockerhub.tls.certResolver=letsEncrypt
+
+    cache-dockerhub:
+        container_name: cache-dockerhub
+        image: registry:2
+        restart: always
+        networks:
+            - traefik-public
+        environment:
+            REGISTRY_PROXY_REMOTEURL: https://registry-1.docker.io
+            REGISTRY_STORAGE_DELETE_ENABLED: 1
+        volumes:
+            - cache-dockerhub:/var/lib/registry
+
+volumes:
+    traefik-public-certs:
+    jenkins-data:
+    docker-certs:
+    docker-data:
+    dockerhub:
+    cache-dockerhub:
+
+networks:
+    app-network:
+        driver: bridge
+    traefik-public:
+        external: true
