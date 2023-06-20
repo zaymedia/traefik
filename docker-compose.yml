@@ -46,12 +46,29 @@ services:
             - traefik.http.middlewares.secure-headers.headers.stsSeconds=31536000
             - traefik.http.middlewares.secure-headers.headers.contentSecurityPolicy=block-all-mixed-content
 
+    rabbitmq:
+        container_name: rabbitmq
+        image: rabbitmq:3-management
+        restart: always
+        environment:
+            RABBITMQ_DEFAULT_USER: "admin"
+            RABBITMQ_DEFAULT_PASS: "password"
+        labels:
+            - traefik.enable=true
+            - traefik.docker.network=traefik-public
+            - traefik.http.routers.rabbitmq.rule=Host(`rabbit.zay.media`)
+            - traefik.http.routers.rabbitmq.entryPoints=https
+            - traefik.http.routers.rabbitmq.middlewares=secure-headers
+            - traefik.http.routers.rabbitmq.tls=true
+            - traefik.http.routers.rabbitmq.tls.certResolver=letsEncrypt
+            - traefik.http.services.rabbitmq.loadBalancer.server.port=15672
+        networks:
+            - traefik-public
+
     centrifugo:
         container_name: centrifugo
         image: centrifugo/centrifugo:latest
         restart: always
-        networks:
-            - traefik-public
         volumes:
             - ./docker/centrifugo/config.json:/centrifugo/config.json
         command: centrifugo -c config.json
@@ -68,15 +85,14 @@ services:
             - traefik.http.routers.centrifugo.tls=true
             - traefik.http.routers.centrifugo.tls.certResolver=letsEncrypt
             - traefik.http.services.centrifugo.loadBalancer.server.port=8000
+        networks:
+            - traefik-public
 
     jenkins:
         container_name: jenkins
         build:
             context: ./docker/jenkins
         restart: always
-        networks:
-            - traefik-public
-            - default
         environment:
             DOCKER_HOST: tcp://docker:2376
             DOCKER_CERT_PATH: /certs/client
@@ -94,6 +110,9 @@ services:
             - traefik.http.routers.jenkins.middlewares=secure-headers
             - traefik.http.routers.jenkins.tls=true
             - traefik.http.routers.jenkins.tls.certResolver=letsEncrypt
+        networks:
+            - traefik-public
+            - default
 
     docker:
         container_name: docker
@@ -116,8 +135,6 @@ services:
             REGISTRY_AUTH_HTPASSWD_REALM: Realm
             REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
             REGISTRY_STORAGE_DELETE_ENABLED: true
-        networks:
-            - traefik-public
         volumes:
             - ./htpasswd:/auth/htpasswd
             - dockerhub:/var/lib/registry
@@ -130,18 +147,20 @@ services:
             - traefik.http.routers.dockerhub.middlewares=secure-headers
             - traefik.http.routers.dockerhub.tls=true
             - traefik.http.routers.dockerhub.tls.certResolver=letsEncrypt
+        networks:
+            - traefik-public
 
     cache-dockerhub:
         container_name: cache-dockerhub
         image: registry:2
         restart: always
-        networks:
-            - traefik-public
         environment:
             REGISTRY_PROXY_REMOTEURL: https://registry-1.docker.io
             REGISTRY_STORAGE_DELETE_ENABLED: 1
         volumes:
             - cache-dockerhub:/var/lib/registry
+        networks:
+            - traefik-public
 
 volumes:
     traefik-public-certs:
