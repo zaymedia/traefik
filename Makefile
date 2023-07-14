@@ -15,5 +15,10 @@ docker-pull:
 docker-build:
 	docker compose build --pull
 
+docker-clear:
+	rm -rf /var/lib/docker/volumes/traefik_dockerhub/_data/docker/registry/v2 \
+	docker compose exec docker docker system prune --all \
+	docker system prune --all
+
 show-jenkins-password:
 	docker compose exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
