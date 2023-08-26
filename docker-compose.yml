@@ -88,6 +88,24 @@ services:
         networks:
             - traefik-public
 
+    typesense:
+        container_name: typesense
+        image: typesense/typesense:latest
+        restart: always
+        volumes:
+            - ./docker/typesense/typesense.json:/typesense-server/typesense.json
+        labels:
+            - traefik.enable=true
+            - traefik.docker.network=traefik-public
+            - traefik.http.routers.typesense.rule=Host(`typesense.zay.media`)
+            - traefik.http.routers.typesense.entryPoints=https
+            - traefik.http.routers.typesense.middlewares=secure-headers
+            - traefik.http.routers.typesense.tls=true
+            - traefik.http.routers.typesense.tls.certResolver=letsEncrypt
+            - traefik.http.services.typesense.loadBalancer.server.port=8108
+        networks:
+            - traefik-public
+
     jenkins:
         container_name: jenkins
         build:

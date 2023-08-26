@@ -95,6 +95,11 @@ make restart
 make init
 ```
 
+Очистить неиспользуемые файлы:
+```
+make clean
+```
+
 Просмотр логов:
 ```
 docker compose logs -f -t
